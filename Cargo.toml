@@ -6,3 +6,6 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+piston_window = "0.127.0"
+gilrs = "0.10.1"
+gfx_glyph = "0.17.0"
