@@ -1,11 +1,5 @@
-use piston_window::{
-    clear, ellipse, glyph_cache::rusttype::GlyphCache, rectangle, text, Button, Context, G2d,
-    G2dTexture, Key, PistonWindow, PressEvent, Texture, TextureSettings, Transformed, UpdateEvent,
-    WindowSettings,
-};
+use piston_window::*;
 const CAMERA_SPEED: f32 = 1.;
-
-type Font = GlyphCache<'static, (), Texture<gfx_device_gl::Resources>>;
 
 struct Game {
     // Stores the current state of the game, including the player's resources and the enemy units on the map
@@ -30,9 +24,9 @@ impl Game {
         }
     }
 
-    fn update(&self) {
+    fn update(&mut self) {
         // Update the game state, including spawning new enemies and advancing existing ones towards the player's base
-        self.state.update(self);
+        self.state.update(&self.enemy_types);
 
         // Check for collisions between towers and enemies and apply damage as necessary
         for tower in &self.state.towers {
@@ -44,7 +38,15 @@ impl Game {
         }
 
         // Remove defeated enemies from the game
+        let total_reward: i32 = self
+            .state
+            .enemies
+            .iter()
+            .filter(|enemy| !enemy.is_alive())
+            .map(|enemy| enemy.enemy_type.reward)
+            .sum();
         self.state.enemies.retain(|enemy| enemy.is_alive());
+        self.state.resources += total_reward;
 
         // Check if the player has won or lost the game
         if self.state.enemies.is_empty() {
@@ -85,12 +87,12 @@ impl GameState {
         }
     }
 
-    fn update(&mut self, game: &Game) {
+    fn update(&mut self, enemy_types: &Vec<EnemyType>) {
         // Spawn new enemies based on the current wave number
         let wave = self.enemies.len() / 10 + 1;
         for _ in 0..wave {
             self.enemies
-                .push(Enemy::new(game.enemy_types[wave % game.enemy_types.len()]));
+                .push(Enemy::new(enemy_types[wave % enemy_types.len()].clone()));
         }
 
         // Advance all existing enemies towards the player's base
@@ -100,6 +102,7 @@ impl GameState {
     }
 }
 
+#[derive(Clone)]
 struct TowerType {
     // Stores the tower's name
     name: String,
@@ -129,6 +132,7 @@ impl Tower {
     }
 }
 
+#[derive(Clone)]
 struct EnemyType {
     // Stores the enemy's name
     name: String,
@@ -174,6 +178,7 @@ impl Enemy {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Point {
     x: f32,
     y: f32,
@@ -188,12 +193,6 @@ impl Point {
         // Calculate the distance between two points using the Pythagorean theorem
         ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
     }
-
-    fn time_since_last_frame() -> f32 {
-        // Return the amount of time that has passed since the last frame
-        // This would typically be implemented using a frame timer or delta time value
-        0.01
-    }
 }
 
 fn time_since_last_frame() -> f32 {
@@ -202,61 +201,15 @@ fn time_since_last_frame() -> f32 {
     0.01
 }
 
-fn render(game: &Game, c: Context, g: &mut G2d, glyph_cache: &mut GlyphCache<(), G2dTexture>) {
-    clear([1.0; 4], g);
-
-    // Draw the player's base
-    rectangle([0.0, 0.5, 0.0, 1.0], [0.0, 0.0, 50.0, 50.0], c.transform, g);
-
-    // Draw the player's resources
-    text(
-        [1.0, 1.0, 1.0, 1.0],
-        20,
-        &format!("Resources: {}", game.state.resources),
-        glyph_cache,
-        c.transform.trans(0.0, 50.0),
-        g,
-    );
-
-    // Draw the player's lives
-    text(
-        [1.0, 1.0, 1.0, 1.0],
-        20,
-        &format!("Lives: {}", game.state.lives),
-        glyph_cache,
-        c.transform.trans(0.0, 70.0),
-        g,
-    );
-
-    // Draw the player's towers
-    for tower in game.state.towers.iter() {
-        let transform = c
-            .transform
-            .trans(tower.position.x.into(), tower.position.y.into());
-        ellipse([0.5, 0.5, 0.5, 1.0], [0.0, 0.0, 25.0, 25.0], transform, g);
-    }
-
-    // Draw the enemy units
-    for enemy in game.state.enemies.iter() {
-        let transform = c
-            .transform
-            .trans(enemy.position.x.into(), enemy.position.y.into());
-        rectangle([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 25.0, 25.0], transform, g);
-    }
-}
-
 fn main() {
     let mut window: PistonWindow = WindowSettings::new("Tower Defense", [640, 480])
         .exit_on_esc(true)
         .build()
         .unwrap();
 
-    let mut glyph_cache: Font = GlyphCache::new(
-        "assets/fonts/Atkinson-Hyperlegible-Regular-102.otf",
-        (),
-        TextureSettings::new(),
-    )
-    .unwrap();
+    let mut glyphs = window
+        .load_font("assets/fonts/Atkinson-Hyperlegible-Regular-102.otf")
+        .unwrap();
 
     let enemy_type_1 = EnemyType {
         name: String::from("Goblin"),
@@ -314,11 +267,11 @@ fn main() {
                 }
                 Key::Space => {
                     // Place a tower at the player's current position
-                    let tower_type = game.tower_types[0]; // For simplicity, use the first tower type in the list
+                    let tower_type = &game.tower_types[0]; // For simplicity, use the first tower type in the list
                     if game.state.resources >= tower_type.cost {
                         game.state
                             .towers
-                            .push(Tower::new(game.state.camera_position, tower_type));
+                            .push(Tower::new(game.state.camera_position, tower_type.clone()));
                         game.state.resources -= tower_type.cost;
                     }
                 }
@@ -326,10 +279,51 @@ fn main() {
             }
         }
         window.draw_2d(&event, |c, g, _device| {
-            render(&game, c, g, &mut glyph_cache);
+            clear([1.0; 4], g);
+
+            // Draw the player's base
+            rectangle([0.0, 0.5, 0.0, 1.0], [0.0, 0.0, 50.0, 50.0], c.transform, g);
+
+            // Draw the player's resources
+            text(
+                [0.0, 0.0, 0.0, 1.0],
+                20,
+                &format!("Resources: {}", game.state.resources),
+                &mut glyphs,
+                c.transform.trans(0.0, 50.0),
+                g,
+            )
+            .unwrap();
+
+            // Draw the player's lives
+            text(
+                [0.0, 0.0, 0.0, 1.0],
+                20,
+                &format!("Lives: {}", game.state.lives),
+                &mut glyphs,
+                c.transform.trans(0.0, 70.0),
+                g,
+            )
+            .unwrap();
+
+            // Draw the player's towers
+            for tower in game.state.towers.iter() {
+                let transform = c
+                    .transform
+                    .trans(tower.position.x.into(), tower.position.y.into());
+                ellipse([0.5, 0.5, 0.5, 1.0], [0.0, 0.0, 25.0, 25.0], transform, g);
+            }
+
+            // Draw the enemy units
+            for enemy in game.state.enemies.iter() {
+                let transform = c
+                    .transform
+                    .trans(enemy.position.x.into(), enemy.position.y.into());
+                rectangle([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 25.0, 25.0], transform, g);
+            }
         });
 
-        event.update(|arg| {
+        event.update(|_| {
             // Update the game state
             game.update();
         });
