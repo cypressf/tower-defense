@@ -1,5 +1,5 @@
 use piston_window::*;
-const CAMERA_SPEED: f32 = 1.;
+const CURSOR_SPEED: f32 = 3.;
 
 struct Game {
     // Stores the current state of the game, including the player's resources and the enemy units on the map
@@ -11,11 +11,8 @@ struct Game {
 }
 
 impl Game {
-    fn new() -> Self {
-        // Initialize the game state and tower/enemy types
+    fn new(tower_types: Vec<TowerType>, enemy_types: Vec<EnemyType>) -> Self {
         let state = GameState::new();
-        let tower_types = Vec::new();
-        let enemy_types = Vec::new();
 
         Game {
             state,
@@ -66,7 +63,7 @@ struct GameState {
     towers: Vec<Tower>,
     // Stores the list of enemy units on the map
     enemies: Vec<Enemy>,
-    camera_position: Point,
+    cursor_position: Point,
 }
 
 impl GameState {
@@ -83,7 +80,7 @@ impl GameState {
             lives,
             towers,
             enemies,
-            camera_position,
+            cursor_position: camera_position,
         }
     }
 
@@ -241,44 +238,33 @@ fn main() {
         rate_of_fire: 2.0,
     };
 
-    let mut game = Game::new();
-    game.enemy_types = vec![enemy_type_1, enemy_type_2];
-    game.tower_types = vec![tower_type_1, tower_type_2];
+    let mut game = Game::new(
+        vec![tower_type_1, tower_type_2],
+        vec![enemy_type_1, enemy_type_2],
+    );
 
+    window.set_lazy(true);
     while let Some(event) = window.next() {
         if let Some(Button::Keyboard(key)) = event.press_args() {
-            // Handle player input
             match key {
-                Key::W => {
-                    // Move the player's camera up
-                    game.state.camera_position.y += CAMERA_SPEED;
-                }
-                Key::A => {
-                    // Move the player's camera left
-                    game.state.camera_position.x -= CAMERA_SPEED;
-                }
-                Key::S => {
-                    // Move the player's camera down
-                    game.state.camera_position.y -= CAMERA_SPEED;
-                }
-                Key::D => {
-                    // Move the player's camera right
-                    game.state.camera_position.x += CAMERA_SPEED;
-                }
+                Key::W => game.state.cursor_position.y -= CURSOR_SPEED,
+                Key::A => game.state.cursor_position.x -= CURSOR_SPEED,
+                Key::S => game.state.cursor_position.y += CURSOR_SPEED,
+                Key::D => game.state.cursor_position.x += CURSOR_SPEED,
                 Key::Space => {
                     // Place a tower at the player's current position
                     let tower_type = &game.tower_types[0]; // For simplicity, use the first tower type in the list
                     if game.state.resources >= tower_type.cost {
                         game.state
                             .towers
-                            .push(Tower::new(game.state.camera_position, tower_type.clone()));
+                            .push(Tower::new(game.state.cursor_position, tower_type.clone()));
                         game.state.resources -= tower_type.cost;
                     }
                 }
                 _ => {}
             }
         }
-        window.draw_2d(&event, |c, g, _device| {
+        window.draw_2d(&event, |c, g, device| {
             clear([1.0; 4], g);
 
             // Draw the player's base
@@ -294,6 +280,13 @@ fn main() {
                 g,
             )
             .unwrap();
+
+            // Draw the player's cursor
+            let transform = c.transform.trans(
+                game.state.cursor_position.x.into(),
+                game.state.cursor_position.y.into(),
+            );
+            ellipse([0.5, 0.5, 0.5, 1.0], [0.0, 0.0, 25.0, 25.0], transform, g);
 
             // Draw the player's lives
             text(
@@ -321,11 +314,13 @@ fn main() {
                     .trans(enemy.position.x.into(), enemy.position.y.into());
                 rectangle([1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 25.0, 25.0], transform, g);
             }
+
+            glyphs.factory.encoder.flush(device);
         });
 
-        event.update(|_| {
-            // Update the game state
-            game.update();
-        });
+        // event.update(|_| {
+        //     // Update the game state
+        //     game.update();
+        // });
     }
 }
